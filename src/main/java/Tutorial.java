@@ -13,10 +13,12 @@ import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import javax.swing.*;
 import javax.swing.event.ListSelectionListener;
@@ -31,7 +33,7 @@ public class Tutorial {
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
     private JFrame frame;
-    private JList<String> songList;
+    private JList<String> albumList, songList;
     private AudioMediaPlayerComponent mediaPlayerComponent;
 
     public Tutorial() {
@@ -49,9 +51,33 @@ public class Tutorial {
             }
         });
 
-        JButton aButton = new JButton("H");
+        JPanel buttonPanel = new JPanel();
+        buttonPanel.setLayout(new GridLayout(2, 13));
+
+        String letters = "abcdefghijklmnopqrstuvwxyz";
+        Arrays.asList(letters.split("")).stream()
+                .map(letter -> {
+                    JButton button = new JButton(letter);
+                    button.setPreferredSize(new Dimension(30, 30));
+                    button.addActionListener(populateSongs);
+                    buttonPanel.add(button);
+                    return button;
+                })
+                .collect(Collectors.toList());
+
         JButton stopButton = new JButton("Stop");
         stopButton.setIcon(new ImageIcon("/Users/spatail/Downloads/stop-circle.png"));
+        stopButton.addActionListener(e -> {
+            mediaPlayerComponent.getMediaPlayer().stop();
+        });
+
+        albumList = new JList<>(new DefaultListModel<String>());
+        albumList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        albumList.getSelectionModel().setValueIsAdjusting(false);
+        albumList.setLayoutOrientation(JList.VERTICAL);
+        albumList.setVisibleRowCount(-1);
+        albumList.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+        albumList.setPreferredSize(new Dimension(200, 300));
 
         songList = new JList<>(new DefaultListModel<String>());
         songList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -60,17 +86,17 @@ public class Tutorial {
         songList.setVisibleRowCount(-1);
         songList.addListSelectionListener(playSelectedSong);
         songList.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+        songList.setPreferredSize(new Dimension(200, 300));
 
-        frame.getContentPane().add(aButton, BorderLayout.NORTH);
-        frame.getContentPane().add(songList, BorderLayout.CENTER);
+        JPanel listPanel = new JPanel();
+        listPanel.setLayout(new FlowLayout());
+        listPanel.add(albumList);
+        listPanel.add(songList);
+
+        frame.getContentPane().add(buttonPanel, BorderLayout.NORTH);
+        frame.getContentPane().add(listPanel, BorderLayout.CENTER);
         frame.getContentPane().add(stopButton, BorderLayout.SOUTH);
         frame.pack();
-
-        aButton.addActionListener(populateSongs);
-
-        stopButton.addActionListener(e -> {
-            mediaPlayerComponent.getMediaPlayer().stop();
-        });
     }
 
     private ListSelectionListener playSelectedSong = e -> {
@@ -99,6 +125,7 @@ public class Tutorial {
         page += page + ".html";
 
         Consumer<List<String>> songPlayer = songFiles -> {
+            ((DefaultListModel<String>) songList.getModel()).removeAllElements();
             songFiles.forEach(sf -> ((DefaultListModel<String>) songList.getModel()).addElement(sf));
         };
 
