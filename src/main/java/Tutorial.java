@@ -9,6 +9,7 @@ import uk.co.caprica.vlcj.component.AudioMediaPlayerComponent;
 import uk.co.caprica.vlcj.discovery.NativeDiscovery;
 
 import java.awt.*;
+import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 import java.util.ArrayList;
@@ -36,7 +37,7 @@ public class Tutorial {
     public Tutorial() {
         mediaPlayerComponent = new AudioMediaPlayerComponent();
 
-        frame = new JFrame("Vibration of Doom Player");
+        frame = new JFrame("Vibrations of Doom Player");
         frame.setBounds(100, 100, 600, 400);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.setVisible(true);
@@ -58,57 +59,14 @@ public class Tutorial {
         songList.setLayoutOrientation(JList.VERTICAL);
         songList.setVisibleRowCount(-1);
         songList.addListSelectionListener(playSelectedSong);
+        songList.setBorder(BorderFactory.createLineBorder(Color.BLACK));
 
         frame.getContentPane().add(aButton, BorderLayout.NORTH);
         frame.getContentPane().add(songList, BorderLayout.CENTER);
         frame.getContentPane().add(stopButton, BorderLayout.SOUTH);
         frame.pack();
 
-//        mediaPlayerComponent.getMediaPlayer().setPlaySubItems(true);
-
-        aButton.addActionListener(e -> {
-            if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
-                return;
-            }
-
-            String text = ((JButton) e.getSource()).getText();
-            logger.debug("Pressed " + text);
-
-            String page = text.toLowerCase();
-            page += page + ".html";
-
-            Consumer<List<String>> songPlayer = songFiles -> {
-                songFiles.forEach(sf -> ((DefaultListModel<String>) songList.getModel()).addElement(sf));
-
-//                int[] trackNo = {0};
-//
-//                MediaPlayerEventAdapter eventAdapter = new MediaPlayerEventAdapter() {
-//                    @Override
-//                    public void finished(MediaPlayer mediaPlayer) {
-//                        if (++trackNo[0] > songFiles.size()) {
-//                            logger.debug("Done album");
-//                        } else {
-//                            logger.debug("Playing next track");
-//                            SwingUtilities.invokeLater(() -> {
-//                                try {
-//                                    Thread.sleep(50);
-//                                } catch (InterruptedException e) {
-//                                    // ignore
-//                                }
-//                                mediaPlayer.playMedia(songFiles.get(trackNo[0]));
-//                            });
-//                        }
-//                    }
-//                };
-//
-//                mediaPlayerComponent.getMediaPlayer().addMediaPlayerEventListener(eventAdapter);
-//
-//                logger.debug("Playing Track: {}", trackNo[0]);
-//                mediaPlayerComponent.getMediaPlayer().playMedia(songFiles.get(trackNo[0]));
-            };
-
-            new FetchPlaylistWorker(page, songPlayer).execute();
-        });
+        aButton.addActionListener(populateSongs);
 
         stopButton.addActionListener(e -> {
             mediaPlayerComponent.getMediaPlayer().stop();
@@ -127,6 +85,24 @@ public class Tutorial {
         String songLink = songList.getSelectedValue();
 
         mediaPlayerComponent.getMediaPlayer().playMedia(songLink);
+    };
+
+    private ActionListener populateSongs = e -> {
+        if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
+            return;
+        }
+
+        String text = ((JButton) e.getSource()).getText();
+        logger.debug("Pressed " + text);
+
+        String page = text.toLowerCase();
+        page += page + ".html";
+
+        Consumer<List<String>> songPlayer = songFiles -> {
+            songFiles.forEach(sf -> ((DefaultListModel<String>) songList.getModel()).addElement(sf));
+        };
+
+        new FetchPlaylistWorker(page, songPlayer).execute();
     };
 
     private static class FetchPlaylistWorker extends SwingWorker<List<String>, Void> {
