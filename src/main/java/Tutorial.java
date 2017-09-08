@@ -18,10 +18,12 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
+import java.util.function.Function;
 
 import javax.swing.*;
 import javax.swing.event.ListSelectionListener;
+
+import static java.util.stream.Collectors.toList;
 
 /**
  * Created by spatail on 7/6/17.
@@ -55,15 +57,13 @@ public class Tutorial {
         buttonPanel.setLayout(new GridLayout(2, 13));
 
         String letters = "abcdefghijklmnopqrstuvwxyz";
-        Arrays.asList(letters.split("")).stream()
-                .map(letter -> {
+        Arrays.stream(letters.split(""))
+                .forEach(letter -> {
                     JButton button = new JButton(letter);
                     button.setPreferredSize(new Dimension(30, 30));
-                    button.addActionListener(populateSongs);
+                    button.addActionListener(populateAlbums);
                     buttonPanel.add(button);
-                    return button;
-                })
-                .collect(Collectors.toList());
+                });
 
         JButton stopButton = new JButton("Stop");
         stopButton.setIcon(new ImageIcon("/Users/spatail/Downloads/stop-circle.png"));
@@ -76,8 +76,6 @@ public class Tutorial {
         albumList.getSelectionModel().setValueIsAdjusting(false);
         albumList.setLayoutOrientation(JList.VERTICAL);
         albumList.setVisibleRowCount(-1);
-        albumList.setBorder(BorderFactory.createLineBorder(Color.BLACK));
-        albumList.setPreferredSize(new Dimension(200, 300));
 
         songList = new JList<>(new DefaultListModel<String>());
         songList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -85,19 +83,63 @@ public class Tutorial {
         songList.setLayoutOrientation(JList.VERTICAL);
         songList.setVisibleRowCount(-1);
         songList.addListSelectionListener(playSelectedSong);
-        songList.setBorder(BorderFactory.createLineBorder(Color.BLACK));
-        songList.setPreferredSize(new Dimension(200, 300));
+
+        JScrollPane albumScroller = new JScrollPane(albumList);
+        albumScroller.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+        albumScroller.setPreferredSize(new Dimension(400, 400));
+
+        JScrollPane songScroller = new JScrollPane(songList);
+        songScroller.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+        songScroller.setPreferredSize(new Dimension(400, 400));
 
         JPanel listPanel = new JPanel();
         listPanel.setLayout(new FlowLayout());
-        listPanel.add(albumList);
-        listPanel.add(songList);
+        listPanel.add(albumScroller);
+        listPanel.add(songScroller);
 
         frame.getContentPane().add(buttonPanel, BorderLayout.NORTH);
         frame.getContentPane().add(listPanel, BorderLayout.CENTER);
         frame.getContentPane().add(stopButton, BorderLayout.SOUTH);
         frame.pack();
     }
+
+    private Function<String ,List<String>> pageToAlbums = page -> {
+        try {
+            Document doc = Jsoup.connect(baseUrl + page).get();
+            Elements links = doc.getElementsByTag("a");
+            return links.stream()
+                    .map(link -> {
+                        String albumLinkStr = link.attr("href");
+                        if (!albumLinkStr.startsWith("http")) {
+                            albumLinkStr = baseUrl + albumLinkStr;
+                        }
+                        return albumLinkStr;
+                    })
+                    .collect(toList());
+        } catch (Exception e) {
+            logger.error("Could not find page={}", page, e);
+            return Collections.emptyList();
+        }
+    };
+
+    private Function<String, List<String>> pageToSongs = page -> {
+        try {
+            Document doc = Jsoup.connect(page).get();
+            Elements songLinks = doc.getElementsByTag("a");
+
+            List<String> songFiles = new ArrayList<>(songLinks.size());
+            for (Element songLink : songLinks) {
+                if (!songLink.attr("href").endsWith(".ram")) continue;
+                doc = Jsoup.connect(baseUrl + songLink.attr("href")).ignoreContentType(true).get();
+                songFiles.add(doc.text());
+            }
+
+            return songFiles;
+        } catch (Exception e) {
+            logger.error("Could not load songs for album={}", page, e);
+            return Collections.emptyList();
+        }
+    };
 
     private ListSelectionListener playSelectedSong = e -> {
         if (e.getValueIsAdjusting()) {
@@ -111,6 +153,21 @@ public class Tutorial {
         String songLink = songList.getSelectedValue();
 
         mediaPlayerComponent.getMediaPlayer().playMedia(songLink);
+    };
+
+    private ActionListener populateAlbums = e -> {
+        String text = ((JButton) e.getSource()).getText();
+        logger.debug("Pressed " + text);
+
+        String page = text.toLowerCase();
+        page += page + ".html";
+
+        Consumer<List<String>> albumsConsumer = albums -> {
+            ((DefaultListModel<String>) albumList.getModel()).removeAllElements();
+            albums.forEach(album -> ((DefaultListModel<String>) albumList.getModel()).addElement(album));
+        };
+
+        new FetchPageDataWorker<>(page, pageToAlbums, albumsConsumer).execute();
     };
 
     private ActionListener populateSongs = e -> {
@@ -129,66 +186,33 @@ public class Tutorial {
             songFiles.forEach(sf -> ((DefaultListModel<String>) songList.getModel()).addElement(sf));
         };
 
-        new FetchPlaylistWorker(page, songPlayer).execute();
+        new FetchPageDataWorker<>(page, pageToSongs, songPlayer).execute();
     };
 
-    private static class FetchPlaylistWorker extends SwingWorker<List<String>, Void> {
+    private static class FetchPageDataWorker<T> extends SwingWorker<T, Void> {
 
         private final String page;
-        private final Consumer<List<String>> songPlayer;
+        private final Function<String, T> pageDataMapper;
+        private final Consumer<T> pageDataConsumer;
 
-        FetchPlaylistWorker(String page, Consumer<List<String>> songPlayer) {
+        FetchPageDataWorker(String page, Function<String, T> pageDataMapper, Consumer<T> pageDataConsumer) {
             this.page = page;
-            this.songPlayer = songPlayer;
+            this.pageDataMapper = pageDataMapper;
+            this.pageDataConsumer = pageDataConsumer;
         }
 
         @Override
-        protected List<String> doInBackground() throws Exception {
-            return songLink(page);
+        protected T doInBackground() throws Exception {
+            return pageDataMapper.apply(page);
         }
 
         @Override
         protected void done() {
             try {
-                List<String> songFiles = get();
-                if (!songFiles.isEmpty()) {
-                    songPlayer.accept(songFiles);
-                }
+                T pageData = get();
+                pageDataConsumer.accept(pageData);
             } catch (InterruptedException | ExecutionException e) {
-                logger.error("Error playing songs", e);
-            }
-        }
-
-        private List<String> songLink(String page) {
-            try {
-                Document doc = Jsoup.connect(baseUrl + page).get();
-                Elements links = doc.getElementsByTag("a");
-                Element albumLink = links.stream()
-                        .filter(link -> link.attr("href").endsWith("Hawaii2.html"))
-                        .findFirst()
-                        .get();
-
-                logger.debug("Found album: " + albumLink.text());
-
-                String albumLinkStr = albumLink.attr("href");
-                if (!albumLinkStr.startsWith("http")) {
-                    albumLinkStr = baseUrl + albumLinkStr;
-                }
-
-                doc = Jsoup.connect(albumLinkStr).get();
-                Elements songLinks = doc.getElementsByTag("a");
-
-                List<String> songFiles = new ArrayList<>(songLinks.size());
-                for (Element songLink : songLinks) {
-                    if (!songLink.attr("href").endsWith(".ram")) continue;
-                    doc = Jsoup.connect(baseUrl + songLink.attr("href")).ignoreContentType(true).get();
-                    songFiles.add(doc.text());
-                }
-
-                return songFiles;
-            } catch (Exception e) {
-                logger.error("Could not find page={}", page, e);
-                return Collections.emptyList();
+                logger.error("Error fetching page data", e);
             }
         }
     }
