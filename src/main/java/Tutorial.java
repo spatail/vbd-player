@@ -17,6 +17,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -34,14 +35,13 @@ public class Tutorial {
 
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
-    private JFrame frame;
     private JList<String> albumList, songList;
     private AudioMediaPlayerComponent mediaPlayerComponent;
 
     public Tutorial() {
         mediaPlayerComponent = new AudioMediaPlayerComponent();
 
-        frame = new JFrame("Vibrations of Doom Player");
+        JFrame frame = new JFrame("VBD Player");
         frame.setBounds(100, 100, 600, 400);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.setVisible(true);
@@ -75,13 +75,12 @@ public class Tutorial {
         albumList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         albumList.getSelectionModel().setValueIsAdjusting(false);
         albumList.setLayoutOrientation(JList.VERTICAL);
-        albumList.setVisibleRowCount(-1);
+        albumList.addListSelectionListener(populateSongs);
 
         songList = new JList<>(new DefaultListModel<String>());
         songList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         songList.getSelectionModel().setValueIsAdjusting(false);
         songList.setLayoutOrientation(JList.VERTICAL);
-        songList.setVisibleRowCount(-1);
         songList.addListSelectionListener(playSelectedSong);
 
         JScrollPane albumScroller = new JScrollPane(albumList);
@@ -108,6 +107,7 @@ public class Tutorial {
             Document doc = Jsoup.connect(baseUrl + page).get();
             Elements links = doc.getElementsByTag("a");
             return links.stream()
+                    .filter(link -> !link.attr("href").endsWith("index.html"))
                     .map(link -> {
                         String albumLinkStr = link.attr("href");
                         if (!albumLinkStr.startsWith("http")) {
@@ -117,7 +117,7 @@ public class Tutorial {
                     })
                     .collect(toList());
         } catch (Exception e) {
-            logger.error("Could not find page={}", page, e);
+            logger.error("Could not load album={}", page, e);
             return Collections.emptyList();
         }
     };
@@ -127,10 +127,12 @@ public class Tutorial {
             Document doc = Jsoup.connect(page).get();
             Elements songLinks = doc.getElementsByTag("a");
 
+            page = page.substring(0, page.lastIndexOf("/") + 1);
+
             List<String> songFiles = new ArrayList<>(songLinks.size());
             for (Element songLink : songLinks) {
                 if (!songLink.attr("href").endsWith(".ram")) continue;
-                doc = Jsoup.connect(baseUrl + songLink.attr("href")).ignoreContentType(true).get();
+                doc = Jsoup.connect(page + songLink.attr("href")).ignoreContentType(true).get();
                 songFiles.add(doc.text());
             }
 
@@ -139,6 +141,19 @@ public class Tutorial {
             logger.error("Could not load songs for album={}", page, e);
             return Collections.emptyList();
         }
+    };
+
+    private ListSelectionListener populateSongs = e -> {
+        if (e.getValueIsAdjusting()) {
+            return;
+        }
+
+        String albumLink = albumList.getSelectedValue();
+        logger.debug("Selected album: " + albumLink);
+
+        Consumer<List<String>> songPlayer = freezeEventsDuringJListModelUpdate(songList, this::populateList);
+
+        new FetchPageDataWorker<>(albumLink, pageToSongs, songPlayer).execute();
     };
 
     private ListSelectionListener playSelectedSong = e -> {
@@ -162,32 +177,26 @@ public class Tutorial {
         String page = text.toLowerCase();
         page += page + ".html";
 
-        Consumer<List<String>> albumsConsumer = albums -> {
-            ((DefaultListModel<String>) albumList.getModel()).removeAllElements();
-            albums.forEach(album -> ((DefaultListModel<String>) albumList.getModel()).addElement(album));
-        };
+        Consumer<List<String>> albumsConsumer = freezeEventsDuringJListModelUpdate(albumList, this::populateList);
 
         new FetchPageDataWorker<>(page, pageToAlbums, albumsConsumer).execute();
     };
 
-    private ActionListener populateSongs = e -> {
-        if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
-            return;
-        }
+    private <T> Consumer<List<T>> freezeEventsDuringJListModelUpdate(JList jList, BiConsumer<JList, List<T>> listPopulator) {
+        return (List<T> t) -> {
+            ListSelectionListener[] listSelectionListeners = jList.getListSelectionListeners();
+            Arrays.stream(listSelectionListeners).forEach(jList::removeListSelectionListener);
 
-        String text = ((JButton) e.getSource()).getText();
-        logger.debug("Pressed " + text);
+            listPopulator.accept(jList, t);
 
-        String page = text.toLowerCase();
-        page += page + ".html";
-
-        Consumer<List<String>> songPlayer = songFiles -> {
-            ((DefaultListModel<String>) songList.getModel()).removeAllElements();
-            songFiles.forEach(sf -> ((DefaultListModel<String>) songList.getModel()).addElement(sf));
+            Arrays.stream(listSelectionListeners).forEach(jList::addListSelectionListener);
         };
+    }
 
-        new FetchPageDataWorker<>(page, pageToSongs, songPlayer).execute();
-    };
+    private <T> void populateList(JList jList, List<T> data) {
+        ((DefaultListModel) jList.getModel()).removeAllElements();
+        data.forEach(datum -> ((DefaultListModel) jList.getModel()).addElement(datum));
+    }
 
     private static class FetchPageDataWorker<T> extends SwingWorker<T, Void> {
 
