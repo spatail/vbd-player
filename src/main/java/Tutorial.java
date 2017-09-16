@@ -182,7 +182,7 @@ public class Tutorial {
         new FetchPageDataWorker<>(page, pageToAlbums, albumsConsumer).execute();
     };
 
-    private <T> Consumer<List<T>> freezeEventsDuringJListModelUpdate(JList jList, BiConsumer<JList, List<T>> listPopulator) {
+    private <T> Consumer<List<T>> freezeEventsDuringJListModelUpdate(JList<T> jList, BiConsumer<JList<T>, List<T>> listPopulator) {
         return (List<T> t) -> {
             ListSelectionListener[] listSelectionListeners = jList.getListSelectionListeners();
             Arrays.stream(listSelectionListeners).forEach(jList::removeListSelectionListener);
@@ -193,9 +193,9 @@ public class Tutorial {
         };
     }
 
-    private <T> void populateList(JList jList, List<T> data) {
+    private <T> void populateList(JList<T> jList, List<T> data) {
         ((DefaultListModel) jList.getModel()).removeAllElements();
-        data.forEach(datum -> ((DefaultListModel) jList.getModel()).addElement(datum));
+        data.forEach(datum -> ((DefaultListModel<T>) jList.getModel()).addElement(datum));
     }
 
     private static class FetchPageDataWorker<T> extends SwingWorker<T, Void> {
