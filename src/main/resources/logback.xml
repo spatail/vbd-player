@@ -1,6 +1,6 @@
 <configuration>
 
-    <timestamp key="TIMESTAMP" datepattern="HHmmss"></timestamp>
+    <timestamp key="TIMESTAMP" datePattern="yyyy-MM-dd'_'HH-mm-ss.SSS"/>
 
     <appender name="FILE" class="ch.qos.logback.core.FileAppender">
         <file>${user.home}/vlcj-${TIMESTAMP}.log</file>
@@ -16,15 +16,15 @@
         </encoder>
     </appender>
 
-    <logger name="ch" level="ERROR"></logger>
-    <logger name="org" level="ERROR"></logger>
-    <logger name="com" level="ERROR"></logger>
+    <logger name="ch" level="ERROR"/>
+    <logger name="org" level="ERROR"/>
+    <logger name="com" level="ERROR"/>
 
-    <logger name="uk.co.caprica.vlcj" level="DEBUG"></logger>
+    <logger name="uk.co.caprica.vlcj" level="DEBUG"/>
 
     <root level="debug">
-        <appender-ref ref="CONSOLE"></appender-ref>
-        <appender-ref ref="FILE"></appender-ref>
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </root>
 
 </configuration>

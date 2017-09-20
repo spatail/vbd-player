@@ -35,7 +35,7 @@ public class Tutorial {
 
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
-    private JList<String> albumList, songList;
+    private JList<MediaItem> albumList, songList;
     private AudioMediaPlayerComponent mediaPlayerComponent;
 
     public Tutorial() {
@@ -68,16 +68,18 @@ public class Tutorial {
         JButton stopButton = new JButton("Stop");
         stopButton.setIcon(new ImageIcon("/Users/spatail/Downloads/stop-circle.png"));
         stopButton.addActionListener(e -> {
-            mediaPlayerComponent.getMediaPlayer().stop();
+            if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
+                mediaPlayerComponent.getMediaPlayer().stop();
+            }
         });
 
-        albumList = new JList<>(new DefaultListModel<String>());
+        albumList = new JList<>(new DefaultListModel<MediaItem>());
         albumList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         albumList.getSelectionModel().setValueIsAdjusting(false);
         albumList.setLayoutOrientation(JList.VERTICAL);
         albumList.addListSelectionListener(populateSongs);
 
-        songList = new JList<>(new DefaultListModel<String>());
+        songList = new JList<>(new DefaultListModel<MediaItem>());
         songList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         songList.getSelectionModel().setValueIsAdjusting(false);
         songList.setLayoutOrientation(JList.VERTICAL);
@@ -102,7 +104,7 @@ public class Tutorial {
         frame.pack();
     }
 
-    private Function<String ,List<String>> pageToAlbums = page -> {
+    private Function<String, List<MediaItem>> pageToAlbums = page -> {
         try {
             Document doc = Jsoup.connect(baseUrl + page).get();
             Elements links = doc.getElementsByTag("a");
@@ -113,7 +115,7 @@ public class Tutorial {
                         if (!albumLinkStr.startsWith("http")) {
                             albumLinkStr = baseUrl + albumLinkStr;
                         }
-                        return albumLinkStr;
+                        return new MediaItem(link.text(), albumLinkStr);
                     })
                     .collect(toList());
         } catch (Exception e) {
@@ -122,18 +124,18 @@ public class Tutorial {
         }
     };
 
-    private Function<String, List<String>> pageToSongs = page -> {
+    private Function<String, List<MediaItem>> pageToSongs = page -> {
         try {
             Document doc = Jsoup.connect(page).get();
             Elements songLinks = doc.getElementsByTag("a");
 
             page = page.substring(0, page.lastIndexOf("/") + 1);
 
-            List<String> songFiles = new ArrayList<>(songLinks.size());
+            List<MediaItem> songFiles = new ArrayList<>(songLinks.size());
             for (Element songLink : songLinks) {
                 if (!songLink.attr("href").endsWith(".ram")) continue;
                 doc = Jsoup.connect(page + songLink.attr("href")).ignoreContentType(true).get();
-                songFiles.add(doc.text());
+                songFiles.add(new MediaItem(songLink.text(), doc.text()));
             }
 
             return songFiles;
@@ -148,12 +150,12 @@ public class Tutorial {
             return;
         }
 
-        String albumLink = albumList.getSelectedValue();
-        logger.debug("Selected album: " + albumLink);
+        MediaItem album = albumList.getSelectedValue();
+        logger.debug("Selected album: " + album);
 
-        Consumer<List<String>> songPlayer = freezeEventsDuringJListModelUpdate(songList, this::populateList);
+        Consumer<List<MediaItem>> songsConsumer = freezeEventsDuringJListModelUpdate(songList, this::populateList);
 
-        new FetchPageDataWorker<>(albumLink, pageToSongs, songPlayer).execute();
+        new FetchPageDataWorker<>(album.getUrl(), pageToSongs, songsConsumer).execute();
     };
 
     private ListSelectionListener playSelectedSong = e -> {
@@ -165,9 +167,9 @@ public class Tutorial {
             mediaPlayerComponent.getMediaPlayer().stop();
         }
 
-        String songLink = songList.getSelectedValue();
+        MediaItem song = songList.getSelectedValue();
 
-        mediaPlayerComponent.getMediaPlayer().playMedia(songLink);
+        mediaPlayerComponent.getMediaPlayer().playMedia(song.getUrl());
     };
 
     private ActionListener populateAlbums = e -> {
@@ -177,7 +179,7 @@ public class Tutorial {
         String page = text.toLowerCase();
         page += page + ".html";
 
-        Consumer<List<String>> albumsConsumer = freezeEventsDuringJListModelUpdate(albumList, this::populateList);
+        Consumer<List<MediaItem>> albumsConsumer = freezeEventsDuringJListModelUpdate(albumList, this::populateList);
 
         new FetchPageDataWorker<>(page, pageToAlbums, albumsConsumer).execute();
     };
@@ -223,6 +225,29 @@ public class Tutorial {
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error fetching page data", e);
             }
+        }
+    }
+
+    private static class MediaItem {
+        private String name;
+        private String url;
+
+        MediaItem(String name, String url) {
+            this.name = name;
+            this.url = url;
+        }
+
+        String getName() {
+            return name;
+        }
+
+        String getUrl() {
+            return url;
+        }
+
+        @Override
+        public String toString() {
+            return name;
         }
     }
 
