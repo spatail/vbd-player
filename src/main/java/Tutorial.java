@@ -7,6 +7,8 @@ import org.slf4j.LoggerFactory;
 
 import uk.co.caprica.vlcj.component.AudioMediaPlayerComponent;
 import uk.co.caprica.vlcj.discovery.NativeDiscovery;
+import uk.co.caprica.vlcj.player.MediaPlayer;
+import uk.co.caprica.vlcj.player.MediaPlayerEventAdapter;
 
 import java.awt.*;
 import java.awt.event.ActionListener;
@@ -16,6 +18,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -36,10 +40,43 @@ public class Tutorial {
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
     private JList<MediaItem> albumList, songList;
+    private JProgressBar timeline;
     private AudioMediaPlayerComponent mediaPlayerComponent;
+
+    private BlockingQueue<Integer> timeQ = new ArrayBlockingQueue<>(30);
+    private static int POISON = -1;
 
     public Tutorial() {
         mediaPlayerComponent = new AudioMediaPlayerComponent();
+        mediaPlayerComponent.getMediaPlayer().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
+            @Override
+            public void playing(MediaPlayer mediaPlayer) {
+                logger.debug("playing: {}", mediaPlayer.getLength());
+                SwingUtilities.invokeLater(() -> timeline.setMaximum((int) mediaPlayer.getLength()));
+            }
+
+            @Override
+            public void timeChanged(MediaPlayer mediaPlayer, long newTime) {
+                timeQ.add((int) newTime);
+                logger.trace("timeChanged: {}", newTime);
+            }
+
+            @Override
+            public void stopped(MediaPlayer mediaPlayer) {
+                logger.trace("Stopped");
+                stopTimeline();
+            }
+
+            @Override
+            public void finished(MediaPlayer mediaPlayer) {
+                logger.trace("Finished");
+                stopTimeline();
+            }
+
+            private void stopTimeline() {
+                timeQ.add(POISON);
+            }
+        });
 
         JFrame frame = new JFrame("VBD Player");
         frame.setBounds(100, 100, 600, 400);
@@ -57,21 +94,12 @@ public class Tutorial {
         buttonPanel.setLayout(new GridLayout(2, 13));
 
         String letters = "abcdefghijklmnopqrstuvwxyz";
-        Arrays.stream(letters.split(""))
-                .forEach(letter -> {
-                    JButton button = new JButton(letter);
-                    button.setPreferredSize(new Dimension(30, 30));
-                    button.addActionListener(populateAlbums);
-                    buttonPanel.add(button);
-                });
-
-        JButton stopButton = new JButton("Stop");
-        stopButton.setIcon(new ImageIcon("/Users/spatail/Downloads/stop-circle.png"));
-        stopButton.addActionListener(e -> {
-            if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
-                mediaPlayerComponent.getMediaPlayer().stop();
-            }
-        });
+        for (String letter : letters.split("")) {
+            JButton button = new JButton(letter);
+            button.setPreferredSize(new Dimension(30, 30));
+            button.addActionListener(populateAlbums);
+            buttonPanel.add(button);
+        }
 
         albumList = new JList<>(new DefaultListModel<MediaItem>());
         albumList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -98,9 +126,25 @@ public class Tutorial {
         listPanel.add(albumScroller);
         listPanel.add(songScroller);
 
+        JButton stopButton = new JButton("Stop");
+        stopButton.setIcon(new ImageIcon("/Users/spatail/Downloads/stop-circle.png"));
+        stopButton.addActionListener(e -> {
+            if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
+                mediaPlayerComponent.getMediaPlayer().stop();
+            }
+        });
+
+        timeline = new JProgressBar();
+        timeline.setString("0:00");
+
+        JPanel controlPanel = new JPanel();
+        controlPanel.setLayout(new FlowLayout());
+        controlPanel.add(stopButton);
+        controlPanel.add(timeline);
+
         frame.getContentPane().add(buttonPanel, BorderLayout.NORTH);
         frame.getContentPane().add(listPanel, BorderLayout.CENTER);
-        frame.getContentPane().add(stopButton, BorderLayout.SOUTH);
+        frame.getContentPane().add(controlPanel, BorderLayout.SOUTH);
         frame.pack();
     }
 
@@ -167,6 +211,8 @@ public class Tutorial {
             mediaPlayerComponent.getMediaPlayer().stop();
         }
 
+        new UpdateTimelineWorker(timeQ, timeline).execute();
+
         MediaItem song = songList.getSelectedValue();
 
         mediaPlayerComponent.getMediaPlayer().playMedia(song.getUrl());
@@ -225,6 +271,42 @@ public class Tutorial {
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error fetching page data", e);
             }
+        }
+    }
+
+    private static class UpdateTimelineWorker extends SwingWorker<Void, Integer> {
+
+        private BlockingQueue<Integer> timeQ;
+        private JProgressBar timeline;
+
+        public UpdateTimelineWorker(BlockingQueue<Integer> timeQ, JProgressBar timeline) {
+            this.timeQ = timeQ;
+            this.timeline = timeline;
+        }
+
+        @Override
+        protected Void doInBackground() throws Exception {
+            int last = 0;
+            int time;
+            while (!isCancelled() && (time = timeQ.take()) != POISON) {
+                if (last == 0) {
+                    last = time;
+                }
+                if ((time - last) >= 1000) {
+                    publish(time);
+                    last = time;
+                }
+            }
+            publish(POISON);
+            logger.trace("Done updating timeline");
+            return null;
+        }
+
+        @Override
+        protected void process(List<Integer> chunks) {
+            logger.trace("Received {} time values", chunks.size());
+            int time = chunks.get(chunks.size() - 1);
+            timeline.setValue(time == POISON ? 0 : time);
         }
     }
 
