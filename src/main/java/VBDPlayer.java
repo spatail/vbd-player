@@ -33,9 +33,9 @@ import static java.util.stream.Collectors.toList;
 /**
  * Created by spatail on 7/6/17.
  */
-public class Tutorial {
+public class VBDPlayer {
 
-    private static final Logger logger = LoggerFactory.getLogger(Tutorial.class);
+    private static final Logger logger = LoggerFactory.getLogger(VBDPlayer.class);
 
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
@@ -46,7 +46,7 @@ public class Tutorial {
     private BlockingQueue<Integer> timeQ = new ArrayBlockingQueue<>(30);
     private static int POISON = -1;
 
-    public Tutorial() {
+    public VBDPlayer() {
         mediaPlayerComponent = new AudioMediaPlayerComponent();
         mediaPlayerComponent.getMediaPlayer().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
             @Override
@@ -335,6 +335,6 @@ public class Tutorial {
 
     public static void main(String[] args) {
         new NativeDiscovery().discover();
-        SwingUtilities.invokeLater(Tutorial::new);
+        SwingUtilities.invokeLater(VBDPlayer::new);
     }
 }
