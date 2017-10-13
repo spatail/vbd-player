@@ -178,8 +178,7 @@ public class VBDPlayer {
             List<MediaItem> songFiles = new ArrayList<>(songLinks.size());
             for (Element songLink : songLinks) {
                 if (!songLink.attr("href").endsWith(".ram")) continue;
-                doc = Jsoup.connect(page + songLink.attr("href")).ignoreContentType(true).get();
-                songFiles.add(new MediaItem(songLink.text(), doc.text()));
+                songFiles.add(new MediaItem(songLink.text(), page + songLink.attr("href")));
             }
 
             return songFiles;
@@ -211,11 +210,16 @@ public class VBDPlayer {
             mediaPlayerComponent.getMediaPlayer().stop();
         }
 
-        new UpdateTimelineWorker(timeQ, timeline).execute();
-
         MediaItem song = songList.getSelectedValue();
 
-        mediaPlayerComponent.getMediaPlayer().playMedia(song.getUrl());
+        Document doc = null;
+        try {
+            doc = Jsoup.connect(song.getUrl()).ignoreContentType(true).get();
+
+            mediaPlayerComponent.getMediaPlayer().playMedia(doc.text());
+        } catch (Exception ex) {
+            logger.error("Could not play song: {}", song.getUrl());
+        }
     };
 
     private ActionListener populateAlbums = e -> {
@@ -329,7 +333,7 @@ public class VBDPlayer {
 
         @Override
         public String toString() {
-            return name;
+            return getName();
         }
     }
 
