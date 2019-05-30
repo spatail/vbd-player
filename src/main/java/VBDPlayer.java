@@ -1,6 +1,5 @@
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,12 +13,10 @@ import java.awt.*;
 import java.awt.event.ActionListener;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
-import java.util.ArrayList;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -43,38 +40,45 @@ public class VBDPlayer {
     private JProgressBar timeline;
     private AudioMediaPlayerComponent mediaPlayerComponent;
 
-    private BlockingQueue<Integer> timeQ = new ArrayBlockingQueue<>(30);
-    private static int POISON = -1;
 
-    public VBDPlayer() {
+    private VBDPlayer() {
         mediaPlayerComponent = new AudioMediaPlayerComponent();
         mediaPlayerComponent.getMediaPlayer().addMediaPlayerEventListener(new MediaPlayerEventAdapter() {
+
+            Timer timer;
+
             @Override
             public void playing(MediaPlayer mediaPlayer) {
                 logger.debug("playing: {}", mediaPlayer.getLength());
-                SwingUtilities.invokeLater(() -> timeline.setMaximum((int) mediaPlayer.getLength()));
-            }
-
-            @Override
-            public void timeChanged(MediaPlayer mediaPlayer, long newTime) {
-                timeQ.add((int) newTime);
-                logger.trace("timeChanged: {}", newTime);
+                SwingUtilities.invokeLater(() -> {
+                    timeline.setMaximum((int) mediaPlayer.getLength());
+                    timeline.setString(getTrackLength("0:00", mediaPlayer.getLength()));
+                });
+                timer = new Timer(999, e -> {
+                    timeline.setValue(timeline.getValue() + 1000);
+                    timeline.setString(getTrackLength(timeline.getString(), 1000));
+                });
+                timer.start();
             }
 
             @Override
             public void stopped(MediaPlayer mediaPlayer) {
-                logger.trace("Stopped");
+                logger.debug("Stopped");
                 stopTimeline();
             }
 
             @Override
             public void finished(MediaPlayer mediaPlayer) {
-                logger.trace("Finished");
+                logger.debug("Finished");
                 stopTimeline();
             }
 
             private void stopTimeline() {
-                timeQ.add(POISON);
+                timer.stop();
+                SwingUtilities.invokeLater(() -> {
+                    timeline.setValue(0);
+                    timeline.setString("0:00");
+                });
             }
         });
 
@@ -135,7 +139,9 @@ public class VBDPlayer {
         });
 
         timeline = new JProgressBar();
+        timeline.setStringPainted(true);
         timeline.setString("0:00");
+        timeline.setPreferredSize(new Dimension(200, 40));
 
         JPanel controlPanel = new JPanel();
         controlPanel.setLayout(new FlowLayout());
@@ -152,15 +158,10 @@ public class VBDPlayer {
         try {
             Document doc = Jsoup.connect(baseUrl + page).get();
             Elements links = doc.getElementsByTag("a");
+
             return links.stream()
                     .filter(link -> !link.attr("href").endsWith("index.html"))
-                    .map(link -> {
-                        String albumLinkStr = link.attr("href");
-                        if (!albumLinkStr.startsWith("http")) {
-                            albumLinkStr = baseUrl + albumLinkStr;
-                        }
-                        return new MediaItem(link.text(), albumLinkStr);
-                    })
+                    .map(link -> new MediaItem(link.text(), link.attr("abs:href")))
                     .collect(toList());
         } catch (Exception e) {
             logger.error("Could not load album={}", page, e);
@@ -175,13 +176,10 @@ public class VBDPlayer {
 
             page = page.substring(0, page.lastIndexOf("/") + 1);
 
-            List<MediaItem> songFiles = new ArrayList<>(songLinks.size());
-            for (Element songLink : songLinks) {
-                if (!songLink.attr("href").endsWith(".ram")) continue;
-                songFiles.add(new MediaItem(songLink.text(), page + songLink.attr("href")));
-            }
-
-            return songFiles;
+            return songLinks.stream()
+                    .filter(songLink -> songLink.attr("href").endsWith(".ram"))
+                    .map(songLink -> new MediaItem(songLink.text(), songLink.attr("abs:href")))
+                    .collect(toList());
         } catch (Exception e) {
             logger.error("Could not load songs for album={}", page, e);
             return Collections.emptyList();
@@ -212,7 +210,7 @@ public class VBDPlayer {
 
         MediaItem song = songList.getSelectedValue();
 
-        Document doc = null;
+        Document doc;
         try {
             doc = Jsoup.connect(song.getUrl()).ignoreContentType(true).get();
 
@@ -250,6 +248,22 @@ public class VBDPlayer {
         data.forEach(datum -> ((DefaultListModel<T>) jList.getModel()).addElement(datum));
     }
 
+    private static String getTrackLength(String remainingTimeDisplay, long elapsedTimeInMillis) {
+        String[] parts = remainingTimeDisplay.replace("-", "").split(":");
+        Duration remaining = Duration.ofMinutes(Long.valueOf(parts[0])).plusSeconds(Long.valueOf(parts[1]));
+        Duration elapsedTime = Duration.ofMillis(elapsedTimeInMillis);
+
+        logger.debug("remaining: {}, elapsed: {}", remainingTimeDisplay, elapsedTimeInMillis);
+
+        Duration newRemaining = remaining.minus(elapsedTime);
+        long mins = newRemaining.toMinutes();
+        long secs = newRemaining.minusMinutes(mins).getSeconds();
+
+        logger.debug("newRemaining: {}:{}", mins, secs);
+
+        return String.format("-%02d:%02d", Math.abs(mins), Math.abs(secs));
+    }
+
     private static class FetchPageDataWorker<T> extends SwingWorker<T, Void> {
 
         private final String page;
@@ -275,42 +289,6 @@ public class VBDPlayer {
             } catch (InterruptedException | ExecutionException e) {
                 logger.error("Error fetching page data", e);
             }
-        }
-    }
-
-    private static class UpdateTimelineWorker extends SwingWorker<Void, Integer> {
-
-        private BlockingQueue<Integer> timeQ;
-        private JProgressBar timeline;
-
-        public UpdateTimelineWorker(BlockingQueue<Integer> timeQ, JProgressBar timeline) {
-            this.timeQ = timeQ;
-            this.timeline = timeline;
-        }
-
-        @Override
-        protected Void doInBackground() throws Exception {
-            int last = 0;
-            int time;
-            while (!isCancelled() && (time = timeQ.take()) != POISON) {
-                if (last == 0) {
-                    last = time;
-                }
-                if ((time - last) >= 1000) {
-                    publish(time);
-                    last = time;
-                }
-            }
-            publish(POISON);
-            logger.trace("Done updating timeline");
-            return null;
-        }
-
-        @Override
-        protected void process(List<Integer> chunks) {
-            logger.trace("Received {} time values", chunks.size());
-            int time = chunks.get(chunks.size() - 1);
-            timeline.setValue(time == POISON ? 0 : time);
         }
     }
 
