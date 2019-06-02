@@ -105,13 +105,13 @@ public class VBDPlayer {
             buttonPanel.add(button);
         }
 
-        albumList = new JList<>(new DefaultListModel<MediaItem>());
+        albumList = new JList<>(new DefaultListModel<>());
         albumList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         albumList.getSelectionModel().setValueIsAdjusting(false);
         albumList.setLayoutOrientation(JList.VERTICAL);
         albumList.addListSelectionListener(populateSongs);
 
-        songList = new JList<>(new DefaultListModel<MediaItem>());
+        songList = new JList<>(new DefaultListModel<>());
         songList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         songList.getSelectionModel().setValueIsAdjusting(false);
         songList.setLayoutOrientation(JList.VERTICAL);
@@ -253,13 +253,13 @@ public class VBDPlayer {
         Duration remaining = Duration.ofMinutes(Long.valueOf(parts[0])).plusSeconds(Long.valueOf(parts[1]));
         Duration elapsedTime = Duration.ofMillis(elapsedTimeInMillis);
 
-        logger.debug("remaining: {}, elapsed: {}", remainingTimeDisplay, elapsedTimeInMillis);
+//        logger.debug("remaining: {}, elapsed: {}", remainingTimeDisplay, elapsedTimeInMillis);
 
         Duration newRemaining = remaining.minus(elapsedTime);
         long mins = newRemaining.toMinutes();
         long secs = newRemaining.minusMinutes(mins).getSeconds();
 
-        logger.debug("newRemaining: {}:{}", mins, secs);
+//        logger.debug("newRemaining: {}:{}", mins, secs);
 
         return String.format("-%02d:%02d", Math.abs(mins), Math.abs(secs));
     }
@@ -277,7 +277,7 @@ public class VBDPlayer {
         }
 
         @Override
-        protected T doInBackground() throws Exception {
+        protected T doInBackground() {
             return pageDataMapper.apply(page);
         }
 
