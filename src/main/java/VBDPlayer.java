@@ -1,3 +1,4 @@
+import com.formdev.flatlaf.FlatDarculaLaf;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
@@ -11,17 +12,22 @@ import uk.co.caprica.vlcj.player.MediaPlayerEventAdapter;
 
 import java.awt.*;
 import java.awt.event.ActionListener;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.net.URL;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import javax.imageio.ImageIO;
 import javax.swing.*;
 import javax.swing.event.ListSelectionListener;
 
@@ -37,6 +43,7 @@ public class VBDPlayer {
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
     private JList<MediaItem> albumList, songList;
+    private JLabel albumCover;
     private JProgressBar timeline;
     private AudioMediaPlayerComponent mediaPlayerComponent;
 
@@ -49,7 +56,7 @@ public class VBDPlayer {
 
             @Override
             public void playing(MediaPlayer mediaPlayer) {
-                logger.debug("playing: {}", mediaPlayer.getLength());
+                logger.debug("playing: {}, {}", mediaPlayer.getLength(), mediaPlayer.getTime());
                 SwingUtilities.invokeLater(() -> {
                     timeline.setMaximum((int) mediaPlayer.getLength());
                     timeline.setString(getTrackLength("0:00", mediaPlayer.getLength()));
@@ -81,6 +88,8 @@ public class VBDPlayer {
                 });
             }
         });
+
+        FlatDarculaLaf.install();
 
         JFrame frame = new JFrame("VBD Player");
         frame.setBounds(100, 100, 600, 400);
@@ -123,15 +132,23 @@ public class VBDPlayer {
 
         JScrollPane songScroller = new JScrollPane(songList);
         songScroller.setBorder(BorderFactory.createLineBorder(Color.BLACK));
-        songScroller.setPreferredSize(new Dimension(400, 400));
+        songScroller.setPreferredSize(new Dimension(300, 200));
+
+        albumCover = new JLabel();
+        albumCover.setIcon(getScaledImage("assets/placeholder_album_cover.png", 300, 300));
+
+        JPanel albumDetails = new JPanel();
+        albumDetails.setLayout(new BoxLayout(albumDetails, BoxLayout.Y_AXIS));
+        albumDetails.add(albumCover);
+        albumDetails.add(songScroller);
 
         JPanel listPanel = new JPanel();
         listPanel.setLayout(new FlowLayout());
         listPanel.add(albumScroller);
-        listPanel.add(songScroller);
+        listPanel.add(albumDetails);
 
         JButton stopButton = new JButton("Stop");
-        stopButton.setIcon(new ImageIcon("/Users/spatail/Downloads/stop-circle.png"));
+        stopButton.setIcon(getScaledImage("assets/stop-button.png", 16, 16));
         stopButton.addActionListener(e -> {
             if (mediaPlayerComponent.getMediaPlayer().isPlaying()) {
                 mediaPlayerComponent.getMediaPlayer().stop();
@@ -142,6 +159,12 @@ public class VBDPlayer {
         timeline.setStringPainted(true);
         timeline.setString("0:00");
         timeline.setPreferredSize(new Dimension(200, 40));
+        timeline.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                logger.info("Timeline clicked: {}", e.getXOnScreen());
+            }
+        });
 
         JPanel controlPanel = new JPanel();
         controlPanel.setLayout(new FlowLayout());
@@ -152,6 +175,12 @@ public class VBDPlayer {
         frame.getContentPane().add(listPanel, BorderLayout.CENTER);
         frame.getContentPane().add(controlPanel, BorderLayout.SOUTH);
         frame.pack();
+    }
+
+    private ImageIcon getScaledImage(String imageFile, int width, int height) {
+        ImageIcon icon = new ImageIcon(getClass().getResource(imageFile));
+        Image scaled = icon.getImage().getScaledInstance(width, height, Image.SCALE_SMOOTH);
+        return new ImageIcon(scaled);
     }
 
     private Function<String, List<MediaItem>> pageToAlbums = page -> {
@@ -174,8 +203,6 @@ public class VBDPlayer {
             Document doc = Jsoup.connect(page).get();
             Elements songLinks = doc.getElementsByTag("a");
 
-            page = page.substring(0, page.lastIndexOf("/") + 1);
-
             return songLinks.stream()
                     .filter(songLink -> songLink.attr("href").endsWith(".ram"))
                     .map(songLink -> new MediaItem(songLink.text(), songLink.attr("abs:href")))
@@ -184,6 +211,28 @@ public class VBDPlayer {
             logger.error("Could not load songs for album={}", page, e);
             return Collections.emptyList();
         }
+    };
+
+    private Function<String, Optional<ImageIcon>> pageToAlbumCover = page -> {
+      try {
+          Document doc = Jsoup.connect(page).get();
+          Elements imgTags = doc.getElementsByTag("img");
+
+          return imgTags.stream()
+                  .map(imgTag -> imgTag.attr("abs:src"))
+                  .filter(imgUrl -> imgUrl.contains("covers"))
+                  .findFirst()
+                  .map(imgUrl -> {
+                      try {
+                          return new ImageIcon(ImageIO.read(new URL(imgUrl)));
+                      } catch (Exception e) {
+                          return null;
+                      }
+                  });
+      } catch (Exception e) {
+          logger.error("Could not find cover art for album={}", page, e);
+          return Optional.empty();
+      }
     };
 
     private ListSelectionListener populateSongs = e -> {
@@ -195,8 +244,11 @@ public class VBDPlayer {
         logger.debug("Selected album: " + album);
 
         Consumer<List<MediaItem>> songsConsumer = freezeEventsDuringJListModelUpdate(songList, this::populateList);
+        Consumer<Optional<ImageIcon>> albumCoverConsumer = optionalIcon ->
+            optionalIcon.ifPresent(icon -> albumCover.setIcon(icon));
 
         new FetchPageDataWorker<>(album.getUrl(), pageToSongs, songsConsumer).execute();
+        new FetchPageDataWorker<>(album.getUrl(), pageToAlbumCover, albumCoverConsumer).execute();
     };
 
     private ListSelectionListener playSelectedSong = e -> {
@@ -250,7 +302,7 @@ public class VBDPlayer {
 
     private static String getTrackLength(String remainingTimeDisplay, long elapsedTimeInMillis) {
         String[] parts = remainingTimeDisplay.replace("-", "").split(":");
-        Duration remaining = Duration.ofMinutes(Long.valueOf(parts[0])).plusSeconds(Long.valueOf(parts[1]));
+        Duration remaining = Duration.ofMinutes(Long.parseLong(parts[0])).plusSeconds(Long.parseLong(parts[1]));
         Duration elapsedTime = Duration.ofMillis(elapsedTimeInMillis);
 
 //        logger.debug("remaining: {}, elapsed: {}", remainingTimeDisplay, elapsedTimeInMillis);
@@ -293,8 +345,8 @@ public class VBDPlayer {
     }
 
     private static class MediaItem {
-        private String name;
-        private String url;
+        private final String name;
+        private final String url;
 
         MediaItem(String name, String url) {
             this.name = name;
