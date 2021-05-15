@@ -42,6 +42,8 @@ public class VBDPlayer {
 
     private static final String baseUrl = "http://vibrationsofdoom.com/test/";
 
+    private static final String RECORD_AUDIO_OPTIONS = "sout=#transcode{acodec=mp3,channels=2,ab=192,samplerate=44100,vcodec=dummy}:standard{dst=__,mux=raw,access=file}";
+
     private JList<MediaItem> albumList, songList;
     private JLabel albumCover;
     private JProgressBar timeline;
@@ -162,7 +164,26 @@ public class VBDPlayer {
         timeline.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
-                logger.info("Timeline clicked: {}", e.getXOnScreen());
+                if (!mediaPlayerComponent.getMediaPlayer().isPlaying()) {
+                    return;
+                }
+
+                logger.info("Timeline clicked: {}", e.getPoint().x);
+                logger.info("Timeline clicked: {}", timeline.getLocationOnScreen().x);
+
+                int clickPositionInside = e.getPoint().x;
+                int componentWidth = timeline.getWidth();
+
+                double widthRatio = (clickPositionInside / (componentWidth * 1.0));
+
+                logger.info("Click Width: {}", widthRatio);
+
+                int newValue = (int) Math.abs(timeline.getMaximum() * widthRatio);
+                int currValue = timeline.getValue();
+
+                mediaPlayerComponent.getMediaPlayer().skip(newValue - currValue);
+
+                timeline.setValue(newValue);
             }
         });
 
@@ -264,9 +285,9 @@ public class VBDPlayer {
 
         Document doc;
         try {
-            doc = Jsoup.connect(song.getUrl()).ignoreContentType(true).get();
+            // doc = Jsoup.connect(song.getUrl()).ignoreContentType(true).get();
 
-            mediaPlayerComponent.getMediaPlayer().playMedia(doc.text());
+            mediaPlayerComponent.getMediaPlayer().playMedia("/Users/spatail/track.mp3"); //RECORD_AUDIO_OPTIONS.replace("__", "/Users/spatail/track.mp3")
         } catch (Exception ex) {
             logger.error("Could not play song: {}", song.getUrl());
         }
